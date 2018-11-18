@@ -1,10 +1,47 @@
 const int channel = 1;
 
-unsigned long tempo = 500;
+unsigned long tempo = 300;
 
 int lastTick = 0;
 int currentTick = 0;
 int dt = 0;
+
+//config variables
+#define NUM_LED_COLUMNS (4)
+#define NUM_LED_ROWS (4)
+#define NUM_BTN_COLUMNS (4)
+#define NUM_BTN_ROWS (4)
+#define NUM_COLORS (3)
+
+#define NUMBER_OF_PATCHES (4)
+#define NUMBER_OF_WIRES (4)
+
+#define MAX_DEBOUNCE (3)
+
+// Global variables
+static uint8_t LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
+static int32_t next_scan;
+
+
+static const uint8_t btnselpins[4]   = {23,21,19,17};
+static const uint8_t btnreadpins[4] = {3,7,11,15};
+static const uint8_t ledselpins[4]   = {22,20,18,16};
+
+static const uint8_t WIRE_PINS[4] = { 24, 25, 26, 27 };
+static const uint8_t PATCH_PINS[4] = { 29, 30, 31, 32 };
+
+// RGB pins for each of 4 rows
+static const uint8_t colorpins[4][3] = {{2,0,1}, {6,4,5}, {10,8,9}, {14,12,13}};
+
+static uint8_t patchWireMap[NUMBER_OF_PATCHES];
+static int8_t wirePatchMap[NUMBER_OF_WIRES];
+
+static uint8_t newPatchWireMap[NUMBER_OF_PATCHES];
+static int8_t newWirePatchMap[NUMBER_OF_WIRES];
+
+
+static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS];
+
 
 class SequencerTrack{
 
@@ -23,7 +60,6 @@ public:
   SequencerTrack(int trackSteps, int trackChannel)
   {
     steps = trackSteps;
-    // stepGates[16] = { };
     channel = trackChannel;
   }
 
@@ -32,18 +68,18 @@ public:
     //Update steps and output.
     if(isGateOpen)
     {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, wirePatchMap[this->channel]+1);
       isGateOpen = false;
       // Serial.print(step);
       // Serial.print(' ');
       // Serial.println("off");
     }
 
-    step = (step + 1) % 16;
+    step = (step + 1) % steps;
 
     if(stepGates[step%steps])
     {
-      usbMIDI.sendNoteOn(70 + step%steps, 100, channel);
+      usbMIDI.sendNoteOn(70 + step%steps, 100, wirePatchMap[this->channel]+1);
       isGateOpen = true;
       // Serial.print(step);
       // Serial.print(' ');
@@ -52,12 +88,18 @@ public:
 
   }
 
+  void Unplug() {
+    if (isGateOpen) {
+      usbMIDI.sendNoteOff(70 + step%steps, 100, wirePatchMap[this->channel]+1);
+    }
+  }
+
 };
 
 
-int trackCount = 1;
-int trackSteps = 16;
-SequencerTrack tracks [1];
+int trackCount = 4;
+int trackSteps = 4;
+SequencerTrack tracks[4];
 
 
 
@@ -68,29 +110,6 @@ SequencerTrack tracks [1];
 
 
 
-//config variables
-#define NUM_LED_COLUMNS (4)
-#define NUM_LED_ROWS (4)
-#define NUM_BTN_COLUMNS (4)
-#define NUM_BTN_ROWS (4)
-#define NUM_COLORS (3)
-
-#define MAX_DEBOUNCE (3)
-
-// Global variables
-static uint8_t LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
-static int32_t next_scan;
-
-
-static const uint8_t btnselpins[4]   = {23,21,19,17};
-static const uint8_t btnreadpins[4] = {3,7,11,15};
-static const uint8_t ledselpins[4]   = {22,20,18,16};
-
-// RGB pins for each of 4 rows
-static const uint8_t colorpins[4][3] = {{2,0,1}, {6,4,5}, {10,8,9}, {14,12,13}};
-
-
-static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS];
 
 static void setuppins() {
   uint8_t i;
@@ -121,6 +140,16 @@ static void setuppins() {
       debounce_count[i][j] = 0;
     }
   }
+
+  for(i = 0; i < NUMBER_OF_WIRES; i++) {
+    pinMode(WIRE_PINS[i], OUTPUT);
+    digitalWrite(WIRE_PINS[i], LOW);
+  }
+
+  for(i = 0; i < NUMBER_OF_PATCHES; i++) {
+    pinMode(PATCH_PINS[i], INPUT_PULLDOWN);
+  }
+
 }
 
 
@@ -140,18 +169,31 @@ static void debugLEDOutputs() {
 }
 
 
+static void debugWirePatch() {
+  for (int i = 0; i < 4; i++) {
+    Serial.print("Wire ");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.println(wirePatchMap[i]);
+  }
+}
+
+
 static void toggleButton(int buttonIndex) {
   Serial.print("Toggle! ");
   Serial.println(buttonIndex);
 
-  if (tracks[0].stepGates[buttonIndex] >= 1) {
-    tracks[0].stepGates[buttonIndex] = 0;
+  int buttonTrack = buttonIndex / trackCount;
+  int buttonTrackIndex = buttonIndex % trackCount;
+
+  if (tracks[buttonTrack].stepGates[buttonTrackIndex] >= 1) {
+    tracks[buttonTrack].stepGates[buttonTrackIndex] = 0;
   } else {
-    tracks[0].stepGates[buttonIndex] = 1;
+    tracks[buttonTrack].stepGates[buttonTrackIndex] = 1;
   }
 
-  int row = buttonIndex / 4;
-  int column = buttonIndex % 4;
+  int row = buttonIndex % 4;
+  int column = buttonIndex / 4;
 
   if (LED_outputs[row][column] == 0) {
     LED_outputs[row][column] = 1;
@@ -162,15 +204,19 @@ static void toggleButton(int buttonIndex) {
 
 
 static int getButtonColor(int buttonIndex) {
-  int row = buttonIndex / 4;
-  int column = buttonIndex % 4;
+  int buttonTrack = buttonIndex % trackCount;
+  int buttonTrackIndex = buttonIndex / trackCount;
 
-  int isCurrentStep = (tracks[0].step % tracks[0].steps) == buttonIndex;
+  int row = buttonIndex % 4;
+  int column = buttonIndex / 4;
+
+  int isCurrentStep = (tracks[buttonTrack].step % tracks[buttonTrack].steps) == buttonTrackIndex;
   int isSelected = LED_outputs[row][column] & 0x03;
+  int isTrackPlugged = wirePatchMap[buttonTrack] != -1;
 
-  if (isCurrentStep && isSelected) {
+  if (isCurrentStep && isSelected && isTrackPlugged) {
     return 3;
-  } else if (isCurrentStep) {
+  } else if (isCurrentStep && isTrackPlugged) {
     return 2;
   } else if (isSelected) {
     return 1;
@@ -210,10 +256,6 @@ static void scan() {
         debounce_count[current][j]++;
 
         if (debounce_count[current][j] == MAX_DEBOUNCE) {
-          // Serial.print("Key Down ");
-          // Serial.println((current * NUM_BTN_ROWS) + j);
-
-          // LED_outputs[current][j]++;
           toggleButton((current * NUM_BTN_ROWS) + j);
         }
       }
@@ -222,8 +264,7 @@ static void scan() {
       if (debounce_count[current][j] > 0) {
         debounce_count[current][j]--;
         if (debounce_count[current][j] == 0) {
-          // Serial.print("Key Up ");
-          // Serial.println((current * NUM_BTN_ROWS) + j);
+          // "key down"
         }
       }
     }
@@ -250,6 +291,38 @@ static void scan() {
 }
 
 
+static void patchBayScan() {
+  for (int j = 0; j < NUMBER_OF_PATCHES; j++) {
+    newPatchWireMap[j] = -1;
+  }
+
+  for (int i = 0; i < NUMBER_OF_WIRES; i++) {
+    newWirePatchMap[i] = -1;
+    digitalWrite(WIRE_PINS[i], HIGH);
+    for (int j = 0; j < NUMBER_OF_PATCHES; j++) {
+      int isOn = digitalRead(PATCH_PINS[j]);
+      if (isOn) {
+        newPatchWireMap[j] = i;
+        newWirePatchMap[i] = j;
+      }
+    }
+    digitalWrite(WIRE_PINS[i], LOW);
+  }
+
+  for (int j = 0; j < NUMBER_OF_PATCHES; j++) {
+    patchWireMap[j] = newPatchWireMap[j];
+  }
+
+  for (int j = 0; j < NUMBER_OF_WIRES; j++) {
+    if (wirePatchMap[j] != newWirePatchMap[j]) {
+      tracks[j].Unplug();  // This is a bit blunt... but should work.
+    }
+
+    wirePatchMap[j] = newWirePatchMap[j];
+  }
+}
+
+
 
 
 
@@ -271,11 +344,9 @@ void setup(){
   * TRACK SETUP
   ****************************************/
 
-  tracks [trackCount] = {};
-
   for(int i=0; i<trackCount; i++)
   {
-    tracks[i] = SequencerTrack(16, i+1); //First track is channel 1;
+    tracks[i] = SequencerTrack(4, i); //First track is channel 1;
   }
 
   /***************************************
@@ -320,4 +391,10 @@ void loop() {
     next_scan = millis()+1;
     scan();
   }
+
+  /***************************************
+  * PATCH BAY
+  ****************************************/
+
+  patchBayScan();
 }
