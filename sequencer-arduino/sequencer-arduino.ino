@@ -65,25 +65,42 @@ public:
 
   void TickStep()
   {
+    int isPluggedIn = (wirePatchMap[this->channel] != -1);
+
+    Serial.print("Channel ");
+    Serial.print(this->channel);
+    Serial.print(" value ");
+    Serial.print(wirePatchMap[this->channel]);
+    Serial.print(" isPluggedIn ");
+    Serial.print(isPluggedIn);
+    Serial.print(" stepGate? ");
+    Serial.println(stepGates[step%steps]);
+
     //Update steps and output.
     if(isGateOpen)
     {
       usbMIDI.sendNoteOff(70 + step%steps, 100, wirePatchMap[this->channel]+1);
       isGateOpen = false;
-      // Serial.print(step);
-      // Serial.print(' ');
-      // Serial.println("off");
+      Serial.print(this->channel);
+      Serial.print(' ');
+      Serial.print(step);
+      Serial.print(' ');
+      Serial.println("off");
     }
 
     step = (step + 1) % steps;
 
-    if(stepGates[step%steps])
+
+
+    if(stepGates[step%steps] && isPluggedIn)
     {
       usbMIDI.sendNoteOn(70 + step%steps, 100, wirePatchMap[this->channel]+1);
       isGateOpen = true;
-      // Serial.print(step);
-      // Serial.print(' ');
-      // Serial.println("on");
+      Serial.print(this->channel);
+      Serial.print(' ');
+      Serial.print(step);
+      Serial.print(' ');
+      Serial.println("on");
     }
 
   }
@@ -314,8 +331,8 @@ static void patchBayScan() {
   }
 
   for (int j = 0; j < NUMBER_OF_WIRES; j++) {
-    if (wirePatchMap[j] != newWirePatchMap[j]) {
-      tracks[j].Unplug();  // This is a bit blunt... but should work.
+    if (wirePatchMap[j] != newWirePatchMap[j] && newWirePatchMap[j] == -1) {
+      tracks[j].Unplug();
     }
 
     wirePatchMap[j] = newWirePatchMap[j];
@@ -397,4 +414,6 @@ void loop() {
   ****************************************/
 
   patchBayScan();
+
+  // debugWirePatch();
 }
