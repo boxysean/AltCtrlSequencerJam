@@ -18,6 +18,8 @@ int dt = 0;
 
 #define MAX_DEBOUNCE (3)
 
+#define BUTTON_HISTORY_MAX (4)
+
 // Global variables
 static uint8_t LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
 static int32_t next_scan;
@@ -40,6 +42,8 @@ static int8_t wirePatchMap[NUMBER_OF_WIRES];
 static uint8_t newPatchWireMap[NUMBER_OF_PATCHES];
 static int8_t newWirePatchMap[NUMBER_OF_WIRES];
 
+static int8_t buttonPressHistory[32];
+static int8_t buttonPressHistoryLength = 0;
 
 static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS];
 
@@ -176,32 +180,75 @@ static void debugWirePatch() {
 }
 
 
-static void toggleButton(int buttonIndex) {
+static void debugButtonHistory() {
+  Serial.print("Length: ");
+  Serial.print(buttonPressHistoryLength);
+  for (int i = 0; i < 8; i++) {
+    Serial.print(" ");
+    Serial.print(buttonPressHistory[i]);
+  }
+  Serial.println();
+}
+
+
+static void turnOnButton(int buttonIndex) {
+  if (buttonPressHistoryLength == BUTTON_HISTORY_MAX) {
+    // Turn off first
+    turnOffButton(buttonPressHistory[0]);
+  }
+
+  setButton(buttonIndex, 1);
+  buttonPressHistory[buttonPressHistoryLength++] = buttonIndex;
+}
+
+static void turnOffButton(int buttonIndex) {
+  // Remake the history array without the button we're turning off
+  debugButtonHistory();
+  for (int newIndex = 0, oldIndex = 0; oldIndex < buttonPressHistoryLength; oldIndex++) {
+    if (buttonPressHistory[oldIndex] == buttonIndex) {
+      // do nothing
+    } else {
+      buttonPressHistory[newIndex++] = buttonPressHistory[oldIndex];
+    }
+  }
+
+  buttonPressHistoryLength--;
+  debugButtonHistory();
+
+  setButton(buttonIndex, 0);
+}
+
+static boolean isButtonOn(int buttonIndex) {
   int buttonTrackIndex = buttonIndex / trackCount;
   int buttonTrack = (NUMBER_OF_PATCHES-1) - (buttonIndex % trackCount);  // Invert
 
-  Serial.print("Toggle! ");
-  Serial.print(buttonIndex);
-  Serial.print(" buttonTrack ");
-  Serial.print(buttonTrack);
-  Serial.print(" buttonTrackIndex ");
-  Serial.print(buttonTrackIndex);
-  Serial.println();
+  return tracks[buttonTrack].stepGates[buttonTrackIndex] >= 1;
+}
 
-  if (tracks[buttonTrack].stepGates[buttonTrackIndex] >= 1) {
-    tracks[buttonTrack].stepGates[buttonTrackIndex] = 0;
+static void setButton(int buttonIndex, int value) {
+  int buttonTrackIndex = buttonIndex / trackCount;
+  int buttonTrack = (NUMBER_OF_PATCHES-1) - (buttonIndex % trackCount);  // Invert
+
+  int ledRow = buttonIndex % 4;
+  int ledColumn = buttonIndex / 4;
+
+  tracks[buttonTrack].stepGates[buttonTrackIndex] = value;
+  LED_outputs[ledRow][ledColumn] = value;
+}
+
+
+static void toggleButton(int buttonIndex) {
+  Serial.print("BEFORE ");
+  debugButtonHistory();
+
+  if (isButtonOn(buttonIndex)) {
+    turnOffButton(buttonIndex);
   } else {
-    tracks[buttonTrack].stepGates[buttonTrackIndex] = 1;
+    turnOnButton(buttonIndex);
   }
 
-  int row = buttonIndex % 4;
-  int column = buttonIndex / 4;
-
-  if (LED_outputs[row][column] == 0) {
-    LED_outputs[row][column] = 1;
-  } else {
-    LED_outputs[row][column] = 0;
-  }
+  Serial.print("AFTER  ");
+  debugButtonHistory();
 }
 
 
