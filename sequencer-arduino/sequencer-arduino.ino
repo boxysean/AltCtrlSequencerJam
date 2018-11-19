@@ -1,6 +1,6 @@
 const int channel = 1;
 
-unsigned long tempo = 300;
+unsigned long tempo = 500;
 
 int lastTick = 0;
 int currentTick = 0;
@@ -27,8 +27,9 @@ static const uint8_t btnselpins[4]   = {23,21,19,17};
 static const uint8_t btnreadpins[4] = {3,7,11,15};
 static const uint8_t ledselpins[4]   = {22,20,18,16};
 
-static const uint8_t WIRE_PINS[4] = { 24, 25, 26, 27 };
-static const uint8_t PATCH_PINS[4] = { 29, 30, 31, 32 };
+static const uint8_t WIRE_PINS[4] = { 27, 26, 25, 24 };
+static const uint8_t PATCH_PINS[4] = { 32, 31, 30, 29 };
+static const char* PATCH_NAMES[4] = { "WHITE", "BLUE", "BLACK", "RED" };
 
 // RGB pins for each of 4 rows
 static const uint8_t colorpins[4][3] = {{2,0,1}, {6,4,5}, {10,8,9}, {14,12,13}};
@@ -48,7 +49,6 @@ class SequencerTrack{
 public:
   int step;
   int steps;  // how many steps are in a track
-  int channel;
   bool isGateOpen;
   int stepGates[16];  // whether or not the gate
 
@@ -57,60 +57,38 @@ public:
 
   }
 
-  SequencerTrack(int trackSteps, int trackChannel)
+  SequencerTrack(int trackSteps)
   {
     steps = trackSteps;
-    channel = trackChannel;
   }
 
-  void TickStep()
+  void TickStep(int channel)
   {
-    int isPluggedIn = (wirePatchMap[this->channel] != -1);
-
-    Serial.print("Channel ");
-    Serial.print(this->channel);
-    Serial.print(" value ");
-    Serial.print(wirePatchMap[this->channel]);
-    Serial.print(" isPluggedIn ");
-    Serial.print(isPluggedIn);
-    Serial.print(" stepGate? ");
-    Serial.println(stepGates[step%steps]);
-
-    //Update steps and output.
+    //Update steps
     if(isGateOpen)
     {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, wirePatchMap[this->channel]+1);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
       isGateOpen = false;
-      Serial.print(this->channel);
-      Serial.print(' ');
-      Serial.print(step);
-      Serial.print(' ');
-      Serial.println("off");
     }
 
     step = (step + 1) % steps;
 
-
-
-    if(stepGates[step%steps] && isPluggedIn)
+    if(stepGates[step%steps] && channel > 0)
     {
-      usbMIDI.sendNoteOn(70 + step%steps, 100, wirePatchMap[this->channel]+1);
+      Serial.print(PATCH_NAMES[channel-1]);
+      Serial.println("!");
+      usbMIDI.sendNoteOn(70 + step%steps, 100, channel);
       isGateOpen = true;
-      Serial.print(this->channel);
-      Serial.print(' ');
-      Serial.print(step);
-      Serial.print(' ');
-      Serial.println("on");
     }
 
   }
 
-  void Unplug() {
+  void Unplug(int channel) {
     if (isGateOpen) {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, wirePatchMap[this->channel]+1);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
+      isGateOpen = false;
     }
   }
-
 };
 
 
@@ -188,20 +166,27 @@ static void debugLEDOutputs() {
 
 static void debugWirePatch() {
   for (int i = 0; i < 4; i++) {
-    Serial.print("Wire ");
-    Serial.print(i);
-    Serial.print(": ");
-    Serial.println(wirePatchMap[i]);
+    Serial.print(PATCH_NAMES[i]);
+    Serial.print("=");
+    Serial.print(patchWireMap[i]+1);
+    Serial.print(" ");
   }
+
+  Serial.println();
 }
 
 
 static void toggleButton(int buttonIndex) {
-  Serial.print("Toggle! ");
-  Serial.println(buttonIndex);
+  int buttonTrackIndex = buttonIndex / trackCount;
+  int buttonTrack = (NUMBER_OF_PATCHES-1) - (buttonIndex % trackCount);  // Invert
 
-  int buttonTrack = buttonIndex / trackCount;
-  int buttonTrackIndex = buttonIndex % trackCount;
+  Serial.print("Toggle! ");
+  Serial.print(buttonIndex);
+  Serial.print(" buttonTrack ");
+  Serial.print(buttonTrack);
+  Serial.print(" buttonTrackIndex ");
+  Serial.print(buttonTrackIndex);
+  Serial.println();
 
   if (tracks[buttonTrack].stepGates[buttonTrackIndex] >= 1) {
     tracks[buttonTrack].stepGates[buttonTrackIndex] = 0;
@@ -221,7 +206,7 @@ static void toggleButton(int buttonIndex) {
 
 
 static int getButtonColor(int buttonIndex) {
-  int buttonTrack = buttonIndex % trackCount;
+  int buttonTrack = 3 - (buttonIndex % trackCount);
   int buttonTrackIndex = buttonIndex / trackCount;
 
   int row = buttonIndex % 4;
@@ -313,29 +298,29 @@ static void patchBayScan() {
     newPatchWireMap[j] = -1;
   }
 
-  for (int i = 0; i < NUMBER_OF_WIRES; i++) {
-    newWirePatchMap[i] = -1;
-    digitalWrite(WIRE_PINS[i], HIGH);
+  for (int wireIdx = 0; wireIdx < NUMBER_OF_WIRES; wireIdx++) {
+    newWirePatchMap[wireIdx] = -1;
+    digitalWrite(WIRE_PINS[wireIdx], HIGH);
     for (int j = 0; j < NUMBER_OF_PATCHES; j++) {
       int isOn = digitalRead(PATCH_PINS[j]);
       if (isOn) {
-        newPatchWireMap[j] = i;
-        newWirePatchMap[i] = j;
+        newPatchWireMap[j] = wireIdx;
+        newWirePatchMap[wireIdx] = j;
       }
     }
-    digitalWrite(WIRE_PINS[i], LOW);
+    digitalWrite(WIRE_PINS[wireIdx], LOW);
   }
 
-  for (int j = 0; j < NUMBER_OF_PATCHES; j++) {
-    patchWireMap[j] = newPatchWireMap[j];
+  for (int patchIdx = 0; patchIdx < NUMBER_OF_PATCHES; patchIdx++) {
+    patchWireMap[patchIdx] = newPatchWireMap[patchIdx];
   }
 
-  for (int j = 0; j < NUMBER_OF_WIRES; j++) {
-    if (wirePatchMap[j] != newWirePatchMap[j] && newWirePatchMap[j] == -1) {
-      tracks[j].Unplug();
+  for (int wireIdx = 0; wireIdx < NUMBER_OF_WIRES; wireIdx++) {
+    if (wirePatchMap[wireIdx] != newWirePatchMap[wireIdx] && newWirePatchMap[wireIdx] == -1) {
+      tracks[wireIdx].Unplug(wirePatchMap[wireIdx]);
     }
 
-    wirePatchMap[j] = newWirePatchMap[j];
+    wirePatchMap[wireIdx] = newWirePatchMap[wireIdx];
   }
 }
 
@@ -363,7 +348,7 @@ void setup(){
 
   for(int i=0; i<trackCount; i++)
   {
-    tracks[i] = SequencerTrack(4, i); //First track is channel 1;
+    tracks[i] = SequencerTrack(4); //First track is channel 1;
   }
 
   /***************************************
@@ -396,8 +381,10 @@ void loop() {
 
     for(int i=0; i<trackCount; i++)
     {
-      tracks[i].TickStep();
+      tracks[i].TickStep(wirePatchMap[i]+1);
     }
+
+    // debugWirePatch();
   }
 
   /***************************************
@@ -414,6 +401,4 @@ void loop() {
   ****************************************/
 
   patchBayScan();
-
-  // debugWirePatch();
 }
