@@ -13,28 +13,34 @@ int dt = 0;
 #define NUM_BTN_ROWS (4)
 #define NUM_COLORS (3)
 
-#define NUMBER_OF_PATCHES (4)
+#define NUMBER_OF_PATCHES (8)
 #define NUMBER_OF_WIRES (4)
+#define NUMBER_OF_ARCADE_BUTTONS (4)
 
 #define MAX_DEBOUNCE (3)
 
-#define BUTTON_HISTORY_MAX (4)
+#define BUTTON_HISTORY_MAX (6)
 
 // Global variables
 static uint8_t LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
 static int32_t next_scan;
 
 
-static const uint8_t btnselpins[4]   = {23,21,19,17};
-static const uint8_t btnreadpins[4] = {3,7,11,15};
-static const uint8_t ledselpins[4]   = {22,20,18,16};
+// SWT-GND1, SWT-GND2, SWT-GND3, SWT-GND4
+static const uint8_t btnselpins[4] = {25,27,29,31};
 
-static const uint8_t WIRE_PINS[4] = { 27, 26, 25, 24 };
-static const uint8_t PATCH_PINS[4] = { 32, 31, 30, 29 };
-static const char* PATCH_NAMES[4] = { "WHITE", "BLUE", "BLACK", "RED" };
+// SWITCH1, SWITCH2, SWITCH3, SWITCH4
+static const uint8_t btnreadpins[4] = {33,37,14,18};
 
-// RGB pins for each of 4 rows
-static const uint8_t colorpins[4][3] = {{2,0,1}, {6,4,5}, {10,8,9}, {14,12,13}};
+// LED-GND1, LED-GND2, LED-GND3, LED-GND4
+static const uint8_t ledselpins[4] = {26,28,30,32};
+
+static const uint8_t WIRE_PINS[NUMBER_OF_WIRES] = { 22, 23, 24, 12 };
+static const uint8_t PATCH_PINS[NUMBER_OF_PATCHES] = { 11, 10, 9, 8, 7, 6, 5, 4 };
+static const char* PATCH_NAMES[NUMBER_OF_PATCHES] = { "WHITE", "BLUE", "BLACK", "RED" };
+
+// RED1, BLUE1, GREEN1, ..., RED4, BLUE4, GREEN4
+static const uint8_t colorpins[4][3] = {{34,35,36}, {38,39,13}, {15,16,17}, {19,20,21}};
 
 static uint8_t patchWireMap[NUMBER_OF_PATCHES];
 static int8_t wirePatchMap[NUMBER_OF_WIRES];
@@ -47,6 +53,8 @@ static int8_t buttonPressHistoryLength = 0;
 
 static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS];
 
+static uint8_t ARCADE_BUTTON_PINS[NUMBER_OF_ARCADE_BUTTONS] = { 3, 2, 0, 1 };
+static int8_t arcadeButtonDebounce[NUMBER_OF_ARCADE_BUTTONS];
 
 class SequencerTrack{
 
@@ -149,6 +157,11 @@ static void setuppins() {
     pinMode(PATCH_PINS[i], INPUT_PULLDOWN);
   }
 
+  for(i = 0; i < NUMBER_OF_ARCADE_BUTTONS; i++) {
+    pinMode(ARCADE_BUTTON_PINS[i], INPUT_PULLUP);
+    arcadeButtonDebounce[i] = 0;
+  }
+
 }
 
 
@@ -203,7 +216,7 @@ static void turnOnButton(int buttonIndex) {
 
 static void turnOffButton(int buttonIndex) {
   // Remake the history array without the button we're turning off
-  debugButtonHistory();
+  // debugButtonHistory();
   for (int newIndex = 0, oldIndex = 0; oldIndex < buttonPressHistoryLength; oldIndex++) {
     if (buttonPressHistory[oldIndex] == buttonIndex) {
       // do nothing
@@ -213,21 +226,21 @@ static void turnOffButton(int buttonIndex) {
   }
 
   buttonPressHistoryLength--;
-  debugButtonHistory();
+  // debugButtonHistory();
 
   setButton(buttonIndex, 0);
 }
 
 static boolean isButtonOn(int buttonIndex) {
   int buttonTrackIndex = buttonIndex / trackCount;
-  int buttonTrack = (NUMBER_OF_PATCHES-1) - (buttonIndex % trackCount);  // Invert
+  int buttonTrack = (NUMBER_OF_WIRES-1) - (buttonIndex % trackCount);  // Invert
 
   return tracks[buttonTrack].stepGates[buttonTrackIndex] >= 1;
 }
 
 static void setButton(int buttonIndex, int value) {
   int buttonTrackIndex = buttonIndex / trackCount;
-  int buttonTrack = (NUMBER_OF_PATCHES-1) - (buttonIndex % trackCount);  // Invert
+  int buttonTrack = (NUMBER_OF_WIRES-1) - (buttonIndex % trackCount);  // Invert
 
   int ledRow = buttonIndex % 4;
   int ledColumn = buttonIndex / 4;
@@ -253,7 +266,7 @@ static void toggleButton(int buttonIndex) {
 
 
 static int getButtonColor(int buttonIndex) {
-  int buttonTrack = 3 - (buttonIndex % trackCount);
+  int buttonTrack = (buttonIndex % trackCount);
   int buttonTrackIndex = buttonIndex / trackCount;
 
   int row = buttonIndex % 4;
@@ -372,6 +385,39 @@ static void patchBayScan() {
 }
 
 
+static void arcadeButtonScan() {
+  for (int i = 0; i < NUMBER_OF_ARCADE_BUTTONS; i++) {
+    // Serial.print(arcadeButtonDebounce[i]);
+    // Serial.print(' ');
+    if (digitalRead(ARCADE_BUTTON_PINS[i]) == LOW) {
+      // pressed
+      if (arcadeButtonDebounce[i] == MAX_DEBOUNCE) {
+        // no-op
+      } else if (++arcadeButtonDebounce[i] == MAX_DEBOUNCE) {
+        // emit button on, rising edge
+        Serial.print("button ");
+        Serial.print(i);
+        Serial.println(" on!");
+        usbMIDI.sendNoteOn(70 + i, 100, 2);
+      }
+    } else {
+      // not pressed
+      if (arcadeButtonDebounce[i] == 0) {
+        // no-op
+      } else if (--arcadeButtonDebounce[i] == 0) {
+        // emit button off, falling edge
+        Serial.print("button ");
+        Serial.print(i);
+        Serial.println(" off!");
+        usbMIDI.sendNoteOff(70 + i, 100, 2);
+      }
+    }
+  }
+  // Serial.println();
+  // delay(1000);
+}
+
+
 
 
 
@@ -448,4 +494,11 @@ void loop() {
   ****************************************/
 
   patchBayScan();
+
+  /***************************************
+  * ARCADE BUTTON
+  ****************************************/
+
+  arcadeButtonScan();
+
 }
