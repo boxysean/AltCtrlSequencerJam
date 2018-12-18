@@ -398,7 +398,7 @@ static void arcadeButtonScan() {
         Serial.print("button ");
         Serial.print(i);
         Serial.println(" on!");
-        usbMIDI.sendNoteOn(70 + i, 100, 2);
+        usbMIDI.sendNoteOn(70 + i, 100, 9);
       }
     } else {
       // not pressed
@@ -409,7 +409,7 @@ static void arcadeButtonScan() {
         Serial.print("button ");
         Serial.print(i);
         Serial.println(" off!");
-        usbMIDI.sendNoteOff(70 + i, 100, 2);
+        usbMIDI.sendNoteOff(70 + i, 100, 9);
       }
     }
   }
