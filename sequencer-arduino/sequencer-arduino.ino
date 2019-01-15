@@ -76,35 +76,31 @@ public:
 
   void TickStep(int channel)
   {
-    int imSoSorryHackChannel = (channel-1);
-    
     //Update steps
     if(isGateOpen)
     {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, imSoSorryHackChannel);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
       isGateOpen = false;
     }
 
     step = (step + 1) % steps;
 
-    if(stepGates[step%steps] && imSoSorryHackChannel >= 0)
+    if(stepGates[step%steps] && channel > 0)
     {
       Serial.print("CHANNEL ");
-      Serial.print(imSoSorryHackChannel);
+      Serial.print(channel);
       Serial.print(" STEP ");
       Serial.print(step%steps);
       Serial.println("!");
-      usbMIDI.sendNoteOn(70 + step%steps, 100, imSoSorryHackChannel);
+      usbMIDI.sendNoteOn(70 + step%steps, 100, channel);
       isGateOpen = true;
     }
 
   }
 
   void Unplug(int channel) {
-    int imSoSorryHackChannel = 3-(channel-1);
-
     if (isGateOpen) {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, imSoSorryHackChannel);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
       isGateOpen = false;
     }
   }
