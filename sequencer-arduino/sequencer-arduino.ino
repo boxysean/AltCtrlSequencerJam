@@ -76,28 +76,35 @@ public:
 
   void TickStep(int channel)
   {
+    int imSoSorryHackChannel = (channel-1);
+    
     //Update steps
     if(isGateOpen)
     {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, imSoSorryHackChannel);
       isGateOpen = false;
     }
 
     step = (step + 1) % steps;
 
-    if(stepGates[step%steps] && channel > 0)
+    if(stepGates[step%steps] && imSoSorryHackChannel >= 0)
     {
-      Serial.print(PATCH_NAMES[channel-1]);
+      Serial.print("CHANNEL ");
+      Serial.print(imSoSorryHackChannel);
+      Serial.print(" STEP ");
+      Serial.print(step%steps);
       Serial.println("!");
-      usbMIDI.sendNoteOn(70 + step%steps, 100, channel);
+      usbMIDI.sendNoteOn(70 + step%steps, 100, imSoSorryHackChannel);
       isGateOpen = true;
     }
 
   }
 
   void Unplug(int channel) {
+    int imSoSorryHackChannel = 3-(channel-1);
+
     if (isGateOpen) {
-      usbMIDI.sendNoteOff(70 + step%steps, 100, channel);
+      usbMIDI.sendNoteOff(70 + step%steps, 100, imSoSorryHackChannel);
       isGateOpen = false;
     }
   }
@@ -233,14 +240,14 @@ static void turnOffButton(int buttonIndex) {
 
 static boolean isButtonOn(int buttonIndex) {
   int buttonTrackIndex = buttonIndex / trackCount;
-  int buttonTrack = (NUMBER_OF_WIRES-1) - (buttonIndex % trackCount);  // Invert
+  int buttonTrack = (buttonIndex % trackCount);
 
   return tracks[buttonTrack].stepGates[buttonTrackIndex] >= 1;
 }
 
 static void setButton(int buttonIndex, int value) {
   int buttonTrackIndex = buttonIndex / trackCount;
-  int buttonTrack = (NUMBER_OF_WIRES-1) - (buttonIndex % trackCount);  // Invert
+  int buttonTrack = (buttonIndex % trackCount);
 
   int ledRow = buttonIndex % 4;
   int ledColumn = buttonIndex / 4;
